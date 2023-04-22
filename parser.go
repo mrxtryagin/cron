@@ -432,7 +432,8 @@ func parseDescriptor(descriptor string, loc *time.Location) (Schedule, error) {
 
 	const once = "@once "
 	if strings.HasPrefix(descriptor, once) {
-		runDate, err := time.Parse("2006-01-02 15:04:05", strings.Replace(descriptor, once, "", 1))
+		config := descriptor[len(once):]
+		runDate, err := time.Parse(time.DateTime, config)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse duration %s: %s", descriptor, err)
 		}
@@ -441,7 +442,7 @@ func parseDescriptor(descriptor string, loc *time.Location) (Schedule, error) {
 			second = uint(runDate.Second())
 			minute = uint(runDate.Minute())
 			hour   = uint(runDate.Hour())
-			dom    = uint(runDate.Day())
+			day    = uint(runDate.Day())
 			month  = uint(runDate.Month())
 			year   = uint(runDate.Year())
 		)
@@ -450,7 +451,39 @@ func parseDescriptor(descriptor string, loc *time.Location) (Schedule, error) {
 			Second:   uint64(second),
 			Minute:   uint64(minute),
 			Hour:     uint64(hour),
-			Dom:      uint64(dom),
+			Dom:      uint64(day),
+			Month:    uint64(month),
+			Year:     uint64(year),
+			Dow:      all(dow),
+			Once:     true,
+			Location: loc,
+		}
+		return ret, nil
+	}
+
+	const delay = "@delay "
+	if strings.HasPrefix(descriptor, delay) {
+		config := descriptor[len(delay):]
+		duration, err := time.ParseDuration(config)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse duration %s: %s", descriptor, err)
+		}
+		runDate := time.Now().Add(duration)
+
+		var (
+			second = uint(runDate.Second())
+			minute = uint(runDate.Minute())
+			hour   = uint(runDate.Hour())
+			day    = uint(runDate.Day())
+			month  = uint(runDate.Month())
+			year   = uint(runDate.Year())
+		)
+
+		ret := &SpecSchedule{
+			Second:   uint64(second),
+			Minute:   uint64(minute),
+			Hour:     uint64(hour),
+			Dom:      uint64(day),
 			Month:    uint64(month),
 			Year:     uint64(year),
 			Dow:      all(dow),

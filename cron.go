@@ -266,34 +266,35 @@ func (c *Cron) run() {
 			timer = time.NewTimer(c.entries[0].Next.Sub(now))
 			//fmt.Printf(" %v, %+v\n", c.entries[0].Next.Sub(now), c.entries[0].ID)
 		}
-
 		for {
 			select {
 			case now = <-timer.C:
 				now = now.In(c.location)
 				c.logger.Info("wake", "now", now)
 
-				del := 0
-
 				// Run every entry whose next time was less than now
-				for k, e := range c.entries {
+				for {
+					e := c.entries.Peek()
+					//为空 直接
+					if e == nil {
+						break
+					}
+					//因为有删除所以可能为空
 					if e.Next.After(now) || e.Next.IsZero() {
 						break
 					}
 					e = heap.Pop(&c.entries).(*Entry)
 					c.startJob(e.WrappedJob)
-					e.Prev = e.Next
-					e.Next = e.Schedule.Next(now)
-					heap.Push(&c.entries, e)
-					c.logger.Info("run", "now", now, "entry", e.ID, "next", e.Next)
 					// only run once
 					if e.Schedule.IsOnce() {
-						c.entries[k] = c.entries[del]
-						del++
+						c.logger.Info("Schedule is Once stopped!")
+						continue
 					}
-
+					e.Prev = e.Next
+					e.Next = e.Schedule.Next(now)
+					c.logger.Info("run", "now", now, "entry", e.ID, "next", e.Next)
+					heap.Push(&c.entries, e)
 				}
-				c.entries = c.entries[del:]
 
 			case newEntry := <-c.add:
 				timer.Stop()
@@ -317,7 +318,7 @@ func (c *Cron) run() {
 				c.removeEntry(id)
 				c.logger.Info("removed", "entry", id)
 			}
-
+			//fmt.Println("本loop结束")
 			break
 		}
 	}

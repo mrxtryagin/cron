@@ -711,3 +711,32 @@ func stop(cron *Cron) chan bool {
 func newWithSeconds() *Cron {
 	return New(WithParser(secondParser), WithChain())
 }
+
+func TestOnce(t *testing.T) {
+	cron := New()
+	log.Println("start...")
+	_, err := cron.AddFunc("@delay 15s", func() {
+		log.Printf("delay:xxxxx")
+	})
+	if err != nil {
+		panic(err)
+	}
+	_, err = cron.AddFunc("@every 15s", func() {
+		log.Printf("every:xxxxx")
+		cron.AddFunc("@delay 10s", func() {
+			log.Printf("delay:xxxxx")
+		})
+	})
+	if err != nil {
+		panic(err)
+	}
+	cron.Start()
+	time.Sleep(1 * time.Minute)
+	for {
+		select {
+		case <-cron.Stop().Done():
+			break
+		}
+	}
+
+}
