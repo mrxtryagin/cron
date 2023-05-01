@@ -3,6 +3,7 @@ package cron
 import (
 	"container/heap"
 	"context"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -33,7 +34,7 @@ type ScheduleParser interface {
 
 // Job is an interface for submitted cron jobs.
 type Job interface {
-	Run()
+	Run(e *Entry)
 }
 
 // Schedule describes a job's duty cycle.
@@ -70,6 +71,10 @@ type Entry struct {
 	// It is kept around so that user code that needs to get at the job later,
 	// e.g. via Entries() can do so.
 	Job Job
+	//锁 todo:参考 python Scheduler来做
+	mu sync.Mutex
+	//对应的cron实例
+	Cron *Cron
 }
 
 // Valid returns true if this is not the zero entry.
@@ -132,14 +137,14 @@ func New(opts ...Option) *Cron {
 }
 
 // FuncJob is a wrapper that turns a func() into a cron.Job
-type FuncJob func()
+type FuncJob func(e *Entry)
 
-func (f FuncJob) Run() { f() }
+func (f FuncJob) Run(e *Entry) { f(e) }
 
 // AddFunc adds a func to the Cron to be run on the given schedule.
 // The spec is parsed using the time zone of this Cron instance as the default.
 // An opaque ID is returned that can be used to later remove it.
-func (c *Cron) AddFunc(spec string, cmd func()) (EntryID, error) {
+func (c *Cron) AddFunc(spec string, cmd func(e *Entry)) (EntryID, error) {
 	return c.AddJob(spec, FuncJob(cmd))
 }
 
@@ -166,6 +171,8 @@ func (c *Cron) Schedule(schedule Schedule, cmd Job) EntryID {
 		WrappedJob: c.chain.Then(cmd),
 		Job:        cmd,
 		Next:       schedule.Next(time.Now()),
+		mu:         sync.Mutex{}, //每个entry有自己的锁
+		Cron:       c,
 	}
 	if !c.running {
 		heap.Push(&c.entries, entry)
@@ -173,6 +180,9 @@ func (c *Cron) Schedule(schedule Schedule, cmd Job) EntryID {
 		c.add <- entry
 	}
 	return entry.ID
+}
+func (e Entry) String() string {
+	return fmt.Sprintf("Entry[%d] nextTime: %v", e.ID, e.Next)
 }
 
 // Entries returns a snapshot of the cron entries.
@@ -284,7 +294,7 @@ func (c *Cron) run() {
 						break
 					}
 					e = heap.Pop(&c.entries).(*Entry)
-					c.startJob(e.WrappedJob)
+					c.startJob(e)
 					// only run once
 					if e.Schedule.IsOnce() {
 						c.logger.Info("Schedule is Once stopped!")
@@ -325,11 +335,11 @@ func (c *Cron) run() {
 }
 
 // startJob runs the given job in a new goroutine.
-func (c *Cron) startJob(j Job) {
+func (c *Cron) startJob(e *Entry) {
 	c.jobWaiter.Add(1)
 	go func() {
 		defer c.jobWaiter.Done()
-		j.Run()
+		e.WrappedJob.Run(e)
 	}()
 }
 
